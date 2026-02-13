@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useMemo } from 'react';
+import { motion, useMotionValue, useSpring } from 'framer-motion';
 import BlurText from '../ui/BlurText';
 
 type Project = {
@@ -62,168 +62,176 @@ const PROJECTS: Project[] = [
   }
 ];
 
-export default function Projects() {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+const CARD_HEIGHT = 450; // Height of the card area
 
-  // Track mouse for future magnet effect (optional enhancement)
+const ProjectCard = ({ 
+  project, 
+  setHoveredId, 
+  hoveredId, 
+  position 
+}: { 
+  project: Project; 
+  index: number; 
+  setHoveredId: (id: string | null) => void; 
+  hoveredId: string | null;
+  position: { top: number; left: number };
+}) => {
+  const isHovered = hoveredId === project.id;
+  const isBlurred = hoveredId !== null && hoveredId !== project.id;
 
-  // Generate pseudo-random positions but deterministic (based on id)
-  const getProjectPosition = (index: number) => {
-    const seed = index;
-    const x = (seed * 137.508) % 100; // Pseudo-random using golden angle
-    const y = (seed * 218.971) % 100;
-    return { x, y };
-  };
+  // Magnetic Effect
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+
+  const mouseX = useSpring(x, { stiffness: 150, damping: 15, mass: 0.1 });
+  const mouseY = useSpring(y, { stiffness: 150, damping: 15, mass: 0.1 });
+
+  function handleMouseMove({ currentTarget, clientX, clientY }: React.MouseEvent) {
+    const { left, top, width, height } = currentTarget.getBoundingClientRect();
+    const center = { x: left + width / 2, y: top + height / 2 };
+    const distance = { x: clientX - center.x, y: clientY - center.y };
+    
+    x.set(distance.x * 0.1); // Magnetic strength
+    y.set(distance.y * 0.1);
+  }
+
+  function handleMouseLeave() {
+    x.set(0);
+    y.set(0);
+    setHoveredId(null);
+  }
 
   return (
-    <section className="relative w-full min-h-screen bg-[#FFF8E7] text-[#2e1065] py-20 px-6 md:px-12 overflow-hidden">
-      <div ref={containerRef} className="relative max-w-7xl mx-auto h-screen">
+    <motion.div
+      className="absolute w-80 h-[28rem] md:w-96 md:h-[32rem] cursor-pointer"
+      style={{
+        top: position.top,
+        left: `${position.left}%`,
+        zIndex: isHovered ? 50 : 10,
+        x: mouseX,
+        y: mouseY,
+      }}
+      onMouseMove={handleMouseMove}
+      onMouseEnter={() => setHoveredId(project.id)}
+      onMouseLeave={handleMouseLeave}
+      animate={{
+        scale: isHovered ? 1.1 : 1,
+        filter: isBlurred ? 'blur(8px) opacity(0.4)' : 'blur(0px) opacity(1)',
+      }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+    >
+      {/* Project Card Inner */}
+      <div className="relative w-full h-full rounded-lg overflow-hidden bg-gray-200 shadow-2xl">
+        <motion.img
+          src={project.image}
+          alt={project.title}
+          className="w-full h-full object-cover"
+          animate={{ scale: isHovered ? 1.1 : 1 }}
+          transition={{ duration: 0.6 }}
+        />
+
+        {/* Overlay */}
+        <motion.div
+          className="absolute inset-0 bg-black/40 flex flex-col justify-end p-6"
+          animate={{ opacity: isHovered ? 1 : 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <motion.span 
+            className="text-[#bef264] font-mono text-xs tracking-[0.2em] uppercase mb-2 block"
+            animate={{ y: isHovered ? 0 : 20, opacity: isHovered ? 1 : 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            {project.brand}
+          </motion.span>
+          
+          <motion.h4 
+            className="text-white font-sans text-3xl font-bold mb-3 leading-none"
+            animate={{ y: isHovered ? 0 : 20, opacity: isHovered ? 1 : 0 }}
+            transition={{ delay: 0.15 }}
+          >
+            {project.title}
+          </motion.h4>
+
+          {isHovered && (
+             <BlurText
+               text={project.description}
+               delay={50}
+               animateBy="words"
+               direction="bottom"
+               className="text-gray-200 text-sm leading-relaxed mb-4 max-w-[90%]"
+             />
+          )}
+
+          <div className="flex flex-wrap gap-2 mt-2">
+            {project.tags.map((tag, i) => (
+              <span key={i} className="text-[10px] border border-white/30 text-white px-2 py-1 rounded-full uppercase tracking-wider">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+};
+
+export default function Projects() {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  // Calculate positions once to avoid re-renders shuffling them
+  const projectPositions = useMemo(() => {
+    return PROJECTS.map((_, index) => {
+      // Deterministic randomness based on index
+      const seed = index * 123.45;
+      const randomX = (Math.sin(seed) * 10000) % 100; // 0-99
+      const normalizedX = Math.abs(randomX); // 0-99 positive
+      
+      // Clamp between 10% and 60% (desktop) to keep it safe from edges
+      // This creates the "scattered" look
+      const left = 10 + (normalizedX % 50); 
+
+      // Vertical stack with some randomness in gap
+      const top = index * (CARD_HEIGHT - 50) + 150; // Start at 150px
+      
+      return { top, left };
+    });
+  }, []);
+
+  const totalHeight = PROJECTS.length * (CARD_HEIGHT - 50) + 300;
+
+  return (
+    <section className="relative w-full bg-[#FFF8E7] text-[#2e1065] overflow-hidden">
+      {/* Background/Decoration */}
+      <div className="absolute inset-0 pointer-events-none opacity-5">
+         <div className="absolute top-0 left-1/4 w-px h-full bg-[#2e1065]"></div>
+         <div className="absolute top-0 right-1/4 w-px h-full bg-[#2e1065]"></div>
+      </div>
+
+      <div className="relative w-full max-w-[1920px] mx-auto" style={{ height: totalHeight }}>
         
-        {/* Section Header */}
-        <div className="absolute top-0 left-0 z-20 mb-16">
-          <h2 className="font-mono text-sm tracking-[0.3em] uppercase border-b border-[#2e1065] pb-4 inline-block">
-            Featured Projects
+        {/* Sticky Header */}
+        <div className="absolute top-20 left-6 md:left-12 z-40 pointer-events-none mix-blend-multiply">
+           <h2 className="font-mono text-sm tracking-[0.3em] uppercase border-b border-[#2e1065] pb-4 inline-block mb-4">
+            Selected Works
           </h2>
-          <h3 className="font-sans text-[2.5rem] md:text-[3.5rem] leading-[1.1] tracking-[-0.02em] mt-6 max-w-[20ch]">
-            Work that
-            <span className="block px-3 py-1 w-max bg-[#bef264] inline-block">
-              speaks for
-            </span>
-            itself
+          <h3 className="font-sans text-5xl md:text-7xl font-bold tracking-tighter leading-[0.9]">
+            Recent<br/>Projects
           </h3>
         </div>
 
-        {/* Projects Grid - Floating Layout */}
-        <div className="relative w-full h-full">
-          {/* Blur overlay - applies to all projects not hovered */}
-          {hoveredId && (
-            <div className="absolute inset-0 z-10 pointer-events-none">
-              <div className="absolute inset-0 bg-[#FFF8E7] opacity-0 backdrop-blur-sm"></div>
-            </div>
-          )}
-
-          {PROJECTS.map((project, index) => {
-            const pos = getProjectPosition(index);
-            const isHovered = hoveredId === project.id;
-
-            return (
-              <motion.div
-                key={project.id}
-                className="absolute w-80 h-96 group cursor-pointer"
-                style={{
-                  left: `${pos.x}%`,
-                  top: `${pos.y}%`,
-                  zIndex: isHovered ? 50 : 10
-                }}
-                onMouseEnter={() => setHoveredId(project.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                animate={{
-                  scale: isHovered ? 1.1 : 1,
-                  filter: hoveredId && !isHovered ? 'blur(8px) opacity(0.4)' : 'blur(0px) opacity(1)',
-                  y: isHovered ? -20 : 0
-                }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-              >
-                {/* Project Card */}
-                <div className="relative w-full h-full rounded-lg overflow-hidden bg-gray-200 shadow-lg">
-                  {/* Image */}
-                  <motion.img
-                    src={project.image}
-                    alt={project.title}
-                    className="w-full h-full object-cover"
-                    animate={{
-                      scale: isHovered ? 1.08 : 1
-                    }}
-                    transition={{ duration: 0.4 }}
-                  />
-
-                  {/* Overlay on Hover */}
-                  <motion.div
-                    className="absolute inset-0 bg-black bg-opacity-0 flex flex-col justify-end p-6"
-                    animate={{
-                      backgroundColor: isHovered ? 'rgba(0, 0, 0, 0.6)' : 'rgba(0, 0, 0, 0)'
-                    }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    {/* Brand Badge */}
-                    <motion.div
-                      className="inline-block mb-3"
-                      animate={{
-                        opacity: isHovered ? 1 : 0,
-                        y: isHovered ? 0 : 10
-                      }}
-                      transition={{ duration: 0.3, delay: 0.1 }}
-                    >
-                      <span className="text-[#bef264] font-mono text-xs tracking-[0.2em] uppercase">
-                        {project.brand}
-                      </span>
-                    </motion.div>
-
-                    {/* Title */}
-                    <motion.h4
-                      className="text-white font-sans text-2xl font-bold mb-3 leading-tight"
-                      animate={{
-                        opacity: isHovered ? 1 : 0,
-                        y: isHovered ? 0 : 10
-                      }}
-                      transition={{ duration: 0.3, delay: 0.15 }}
-                    >
-                      {project.title}
-                    </motion.h4>
-
-                    {/* Animated Description */}
-                    {isHovered && (
-                      <BlurText
-                        text={project.description}
-                        delay={100}
-                        animateBy="words"
-                        direction="bottom"
-                        className="text-white text-sm leading-relaxed mb-4 max-w-xs"
-                        stepDuration={0.25}
-                      />
-                    )}
-
-                    {/* Tags */}
-                    <motion.div
-                      className="flex flex-wrap gap-2"
-                      animate={{
-                        opacity: isHovered ? 1 : 0,
-                        y: isHovered ? 0 : 10
-                      }}
-                      transition={{ duration: 0.3, delay: 0.25 }}
-                    >
-                      {project.tags.map((tag, i) => (
-                        <span
-                          key={i}
-                          className="px-2 py-1 bg-[#bef264] text-[#2e1065] text-xs font-mono rounded"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </motion.div>
-                  </motion.div>
-                </div>
-
-                {/* Border accent on hover */}
-                <motion.div
-                  className="absolute inset-0 pointer-events-none rounded-lg border-2 border-[#bef264]"
-                  animate={{
-                    opacity: isHovered ? 1 : 0
-                  }}
-                  transition={{ duration: 0.3 }}
-                />
-              </motion.div>
-            );
-          })}
+        {/* Projects Container */}
+        <div className="w-full h-full relative">
+          {PROJECTS.map((project, index) => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              index={index}
+              setHoveredId={setHoveredId}
+              hoveredId={hoveredId}
+              position={projectPositions[index]}
+            />
+          ))}
         </div>
-      </div>
-
-      {/* Scroll Hint */}
-      <div className="absolute bottom-6 right-6 text-center">
-        <p className="font-mono text-xs opacity-50 uppercase tracking-[0.1em]">
-          Hover to explore
-        </p>
       </div>
     </section>
   );
